@@ -61,24 +61,27 @@ class AlertMonitor:
         except Exception as error:
             self.logger.error("Error while getting disk usage alert. Please review error: %s" % error)
 
-    def load_avg_alerter(self, alert_threshold):
+    def load_5mavg_alerter(self, alert_threshold):
         """
         Method to alert if the majority of servers within a service exhibit "Load5mAvg" with a value greater alert_threshold at the same time
-        Do not include inactive servers when calclating majority
+        Do not include inactive servers when calculating majority
 
         Args: alert_threshold
         Returns: None
         """
         try:
+            # spliting list into multiple list based on services
             list_split_result = collections.defaultdict(list)
             for metric in self.metric_data:
                 list_split_result[metric['service']].append(metric)
             result_list = list(list_split_result.values())
+
             for result in result_list:
-                half = len(result) / 2
-                thresholdActiveValueList = [d for d in result if d['active'] and d['value'] > alert_threshold]
-                if (len(thresholdActiveValueList) > half):
-                    for entry in thresholdActiveValueList:
+                activeServerResultList = [d for d in result if d['active'] and d['component'].lower() == "Load5mAvg".lower()]
+                half = len(activeServerResultList) / 2
+                thresholdMetActiveValueList = [d for d in activeServerResultList if d['value'] > alert_threshold]
+                if (len(thresholdMetActiveValueList) > half):
+                    for entry in thresholdMetActiveValueList:
                         self.alert_list.append({'clusterd_service': True, 'timestamp': entry['timestamp'], 'component': entry['component'], 'value': alert_threshold, 'service': entry['service'] })
         except Exception as error:
             self.logger.error("Error while getting load average alert. Please review error: %s" % error)
@@ -122,7 +125,7 @@ if __name__ == "__main__":
     alertMonitor.disk_usage_alerter(alert_threshold=0.9)
 
     # trigger alert on load_avg
-    alertMonitor.load_avg_alerter(alert_threshold=4.0)
+    alertMonitor.load_5mavg_alerter(alert_threshold=4.0)
 
     # printing alert
     alertMonitor.alert_output()
