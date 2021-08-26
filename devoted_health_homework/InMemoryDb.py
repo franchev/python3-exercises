@@ -12,7 +12,7 @@ class InMemoryDb:
     """
 
     def __init__(self):
-        self.dataInMemory = io.StringIO()
+        self.dataInmemory = {}
         self.set_logger()
         self.allowed_function_verb_list = ["SET", "GET", "DELETE", "COUNT", "END", "BEGIN", "ROLLBACK", "COMMIT"]
 
@@ -62,18 +62,23 @@ class InMemoryDb:
         Args: input
         Returns: None
         """
-        self.input = input.rsplit()
-        action = self.input[0]
+        data = input.rsplit()
+        action = data[0]
 
         if action in self.allowed_function_verb_list:
             if action == "SET":
-                self.SET()
+                name = data[1]
+                value = data[2]
+                self.SET(name, value)
             if action == "GET":
-                self.GET()
+                name = data[1]
+                self.GET(name)
             if action == "DELETE":
-                self.DELETE()
+                name = data[1]
+                self.DELETE(name)
             if action == "COUNT":
-                self.COUNT()
+                value = data[1]
+                self.COUNT(value)
             if action == "END":
                 self.END()
         else:
@@ -84,26 +89,25 @@ class InMemoryDb:
         Method to Set the name in the database to the given value 
         SET [name] [value]
 
-        Args: name, value 
+        Args: data
         Returns: None
         """
-        print("SET value")
+        self.dataInmemory[name] = value
 
     def GET(self, name):
         """
         Method to Print the value for the given name. If the value is not in the database, prints N​ULL
         GET [name]
 
-        Args: name
+        Args: data
         Returns: None
         """
-        self.dataInMemory.write(input)
-        #print(self.dataInMemory.getvalue())
-        #print('Python.', file=self.dataInMemory)
-        #print(self.dataInMemory.getvalue())
-        print("GET value")
+        if name in self.dataInmemory:
+            print(self.dataInmemory[name])
+        else:
+            print("NULL")
 
-    def DELETE(self, value):
+    def DELETE(self, name):
         """
         Method to Delete the value from the database
         DELETE [value] 
@@ -111,9 +115,10 @@ class InMemoryDb:
         Args: value
         Returns: None
         """
-        print("DELETE value")
+        if name in self.dataInmemory:
+            del self.dataInmemory[name]
 
-    def COUNT(self, value):
+    def COUNT(self, val):
         """
         Method Returns the number of names that have the given value assigned to them. If that value is not assigned anywhere, prints ​0 
         Count [Value]
@@ -121,7 +126,11 @@ class InMemoryDb:
         Args: value
         Returns: number of names or 0
         """
-        print("COUNT value")
+        sum = 0
+        for key, value in self.dataInmemory.items():
+            if value == val:
+                sum += 1
+        print(sum)
 
     def END(self):
         """
@@ -131,9 +140,8 @@ class InMemoryDb:
         Returns: None
         """
         self.logger.info("EXITING Database")
-        self.dataInMemory.close()
         sys.exit(0)
-    
+
 if __name__ == "__main__":
     inMemoryDbObject = InMemoryDb()
     for line in sys.stdin:
