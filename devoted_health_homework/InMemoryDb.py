@@ -4,6 +4,11 @@ import sys
 import collections
 import os
 import io
+import threading
+import queue
+import time
+import fileinput
+import select
 
 class InMemoryDb:  
     """
@@ -11,10 +16,103 @@ class InMemoryDb:
     - Reads values from STDIN line by line and executes functions as they happen
     """
 
-    def __init__(self):
+    def __init__(self, stdin):
         self.dataInmemory = {}
         self.set_logger()
-        self.allowed_function_verb_list = ["SET", "GET", "DELETE", "COUNT", "END", "BEGIN", "ROLLBACK", "COMMIT"]
+        self.input = stdin
+        self.validated_stdin = queue.Queue()
+        self.allowed_function_verb_list = ["SET", "GET", "DELETE", "COUNT", "END", "BEGIN"]
+        self.allowed_transaction_verb_list = ["SET", "GET", "DELETE", "END", "ROLLBACK", "COMMIT"]
+        self.temporary_transaction_list = []
+        self.temporary_transaction_dict = {}
+        self.rollback_triggered = False
+        self.transaction_count = 0
+    
+    def actionVerbValidator(self, action):
+        """
+        Method that calls other methods to perform actions
+
+        Args: input, transaction_action
+        Returns: None
+        """
+        try:
+            combine_allowed_list = set(self.allowed_function_verb_list + self.allowed_transaction_verb_list)
+            if action not in combine_allowed_list:
+                return False
+            else:
+                return True
+        except Exception as error:
+            self.logger.error("Error while performing validating actionVerbs, please review. Please review error: %s" % error)
+
+    
+    def performActions(self, input, transaction_action=False):
+        """
+        Method that calls other methods to perform actions
+
+        Args: input, transaction_action
+        Returns: None
+        """
+        try:
+            action = input[0]
+            data = input[1:]
+            if action == "END":
+                self.END()
+            if transaction_action: 
+                if action == "SET":
+                    self.SET(data, transaction_action = True)
+                if action == "GET":
+                    self.GET(data, transaction_action = True)
+                if action == "DELETE":
+                    self.DELETE(data, transaction_action = True)
+                if action == "COUNT":
+                    self.COUNT(data, transaction_action = True)
+                if action == "ROLLBACK":
+                    self.ROLLBACK(transaction_action = True)
+                if action == "COMMIT":
+                    self.COMMIT(data, transaction_action = True)
+            else:
+                if action == "END":
+                    self.END()
+                if action == "SET":
+                    self.SET(data)
+                if action == "GET":
+                    self.GET(data)
+                if action == "DELETE":
+                    self.DELETE(data)
+                if action == "COUNT":
+                    self.COUNT(data)
+        except Exception as error:
+            self.logger.error("Error while performing action, please review. Please review error: %s" % error)
+
+    def processInput(self):
+        """
+        Method to process input from self.input 
+
+        Args: None
+        Returns: None
+        """
+        try:
+            for line in self.input:
+                if not line:
+                    self.logger.error("Input cannot be empty")
+                    return
+                data = line.rsplit()
+                actionVerb = data[0]
+                if actionVerb == "BEGIN":
+                    stdInNew = sys.stdin
+                    for line in stdInNew:
+                        data = line.rsplit()
+                        newAction = data[0]
+                        if self.actionVerbValidator(newAction):
+                            self.performActions(data, transaction_action=True)
+                        else:
+                            self.logger.error("function '%s' not allowed, supported fuctions are %s" % (newAction, (self.allowed_transaction_verb_list + self.allowed_function_verb_list)))
+                elif self.actionVerbValidator(actionVerb):
+                    self.performActions(data)    
+                else:
+                    self.logger.error("function '%s' not allowed, supported fuctions are %s" % (actionVerb, (self.allowed_transaction_verb_list + self.allowed_function_verb_list)))
+        except Exception as error:
+            self.logger.error("Cannot Process INput. Please review error: %s" % error)
 
     def set_logger(self):
         """
@@ -32,59 +130,7 @@ class InMemoryDb:
         logger.addHandler(handler)
         self.logger = logger
     
-    def usage(self):
-        print("""
-        These are the functions that are allowed with this program. Please review the examples folder for further help.
-        SET [name] [value]
-        Explanation: Sets the name in the database to the given value
-        GET [name]
-        Explanation: Prints the value for the given name. If the value is not in the database, prints N​ ULL
-        DELETE [name]
-        Explanation: Deletes the value from the database
-        COUNT [value]
-        Explanation: Returns the number of names that have the given value assigned to them. If that value is not assigned anywhere, prints ​0
-        END
-        Explanation: Exists the database
-        
-        * The database can also support transactions:
-            BEGIN
-            Explanation: Begins a new transaction
-            ROLLBACK
-            Explanation: Rolls back the most recent transaction. If there is no transaction to rollback, prints T​ RANSACTION NOT FOUND
-            COMMIT
-            Explanation: Commits all of the Open transactions
-        """)
-
-    def processInput(self, input):
-        """
-        Method to process input from stdin then perform next call
-
-        Args: input
-        Returns: None
-        """
-        data = input.rsplit()
-        action = data[0]
-
-        if action in self.allowed_function_verb_list:
-            if action == "SET":
-                name = data[1]
-                value = data[2]
-                self.SET(name, value)
-            if action == "GET":
-                name = data[1]
-                self.GET(name)
-            if action == "DELETE":
-                name = data[1]
-                self.DELETE(name)
-            if action == "COUNT":
-                value = data[1]
-                self.COUNT(value)
-            if action == "END":
-                self.END()
-        else:
-            self.logger.info("Function \"%s\" is not in the list of allowed functions: %s" % (action, ",".join(self.allowed_function_verb_list)))
-
-    def SET(self, name, value):
+    def SET(self, data, transaction_action=False):
         """
         Method to Set the name in the database to the given value 
         SET [name] [value]
@@ -92,9 +138,21 @@ class InMemoryDb:
         Args: data
         Returns: None
         """
-        self.dataInmemory[name] = value
+        try:
+            if len(data) <= 1:
+                self.logger.error("SET requires 2 values, only %d provided. Example SET a foo" % len(data))
+                return
+            name = data[0]
+            value = data[1]
+            if not transaction_action:
+                self.dataInmemory[name] = value
+            else:
+                self.transaction_count += 1
+                self.temporary_transaction_list.append({name: value})
+        except Exception as error:
+            self.logger.error("Cannot SET. Please review error: %s" % error)
 
-    def GET(self, name):
+    def GET(self, data, transaction_action=False):
         """
         Method to Print the value for the given name. If the value is not in the database, prints N​ULL
         GET [name]
@@ -102,12 +160,32 @@ class InMemoryDb:
         Args: data
         Returns: None
         """
-        if name in self.dataInmemory:
-            print(self.dataInmemory[name])
-        else:
-            print("NULL")
+        try:
+            if len(data) < 1:
+                self.logger.error("GET requires 1 value, only %d provided. Example GET a" % len(data))
+                return
+            name = data[0]
+            if not transaction_action:
+                if name in self.dataInmemory:
+                    print(self.dataInmemory[name])
+                else:
+                    print("NULL")
+            else:
+                if self.rollback_triggered:
+                    if name in self.temporary_transaction_dict:
+                        print(self.temporary_transaction_dict[name])
+                    else:
+                        print("NULL")
+                else:
+                    transaction_item = [a_dict[name] for a_dict in self.temporary_transaction_list]
+                    if transaction_item:
+                        print(transaction_item[-1])
+                    else:
+                        print("NULL")
+        except Exception as error:
+            self.logger.error("Cannot Get. Please review error: %s" % error)
 
-    def DELETE(self, name):
+    def DELETE(self, data, transaction_action=False):
         """
         Method to Delete the value from the database
         DELETE [value] 
@@ -115,10 +193,17 @@ class InMemoryDb:
         Args: value
         Returns: None
         """
-        if name in self.dataInmemory:
-            del self.dataInmemory[name]
+        try:
+            if len(data) < 1:
+                self.logger.error("DELETE require 1 value, only %d provided. Example DELETE a" % len(data))
+                return
+            name = data[0]
+            if name in self.dataInmemory:
+                del self.dataInmemory[name]
+        except Exception as error:
+            self.logger.error("Cannot DELETE. Please review error: %s" % error)
 
-    def COUNT(self, val):
+    def COUNT(self, data, transaction_action=False):
         """
         Method Returns the number of names that have the given value assigned to them. If that value is not assigned anywhere, prints ​0 
         Count [Value]
@@ -126,11 +211,35 @@ class InMemoryDb:
         Args: value
         Returns: number of names or 0
         """
-        sum = 0
-        for key, value in self.dataInmemory.items():
-            if value == val:
-                sum += 1
-        print(sum)
+        try:
+            if len(data) < 1:
+                self.logger.error("COUNT require 1 value, only %d provided. Example COUNT foo" % len(data))
+                return
+            val = data[0]
+            sum = 0
+            for key, value in self.dataInmemory.items():
+                if value == val:
+                    sum += 1
+            print(sum)
+        except Exception as error:
+            self.logger.error("Cannot COUNT. Please review error: %s" % error)
+    
+    def ROLLBACK(self, transaction_action=False):
+        """
+        Method to rollback a transaction 
+
+        Args: data
+        Returns: None 
+        """
+        try:
+            self.rollback_triggered = True
+            if self.transaction_count >= len(self.temporary_transaction_list):
+                self.temporary_transaction_dict = (self.temporary_transaction_list[0])
+                self.transaction_count = 0
+            else:
+                self.temporary_transaction_dict = {}
+        except Exception as error:
+            self.logger.error("CANNOT ROLLBACK. Please review error: %s" % error)
 
     def END(self):
         """
@@ -139,11 +248,12 @@ class InMemoryDb:
         Args: None
         Returns: None
         """
-        self.logger.info("EXITING Database")
-        sys.exit(0)
+        try:
+            self.logger.info("EXITING Database")
+            sys.exit(1)
+        except Exception as error:
+            self.logger.error("CANNOT END, PLEASE PRESS CTRL+C TO FORCE EXIT. Please review error: %s" % error)
 
 if __name__ == "__main__":
-    inMemoryDbObject = InMemoryDb()
-    for line in sys.stdin:
-        inMemoryDbObject.processInput(line) 
-    
+    inMemoryDbObject = InMemoryDb(sys.stdin)
+    inMemoryDbObject.processInput()
