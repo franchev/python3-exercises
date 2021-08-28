@@ -18,13 +18,13 @@ class InMemoryDb:
 
     def __init__(self, stdin):
         self.dataInmemory = {}
-        self.set_logger()
+        self.setLogger()
         self.input = stdin
-        self.validated_stdin = queue.Queue()
         self.allowed_function_verb_list = ["SET", "GET", "DELETE", "COUNT", "END", "BEGIN"]
         self.allowed_transaction_verb_list = ["SET", "GET", "DELETE", "END", "ROLLBACK", "COMMIT"]
         self.temporary_transaction_list = []
         self.temporary_transaction_dict = {}
+        self.transaction_action = False
         self.rollback_triggered = False
         self.transaction_count = 0
     
@@ -45,42 +45,31 @@ class InMemoryDb:
             self.logger.error("Error while performing validating actionVerbs, please review. Please review error: %s" % error)
 
     
-    def performActions(self, input, transaction_action=False):
+    def performActions(self, input):
         """
         Method that calls other methods to perform actions
 
-        Args: input, transaction_action
+        Args: input
         Returns: None
         """
         try:
             action = input[0]
             data = input[1:]
+
             if action == "END":
-                self.END()
-            if transaction_action: 
-                if action == "SET":
-                    self.SET(data, transaction_action = True)
-                if action == "GET":
-                    self.GET(data, transaction_action = True)
-                if action == "DELETE":
-                    self.DELETE(data, transaction_action = True)
-                if action == "COUNT":
-                    self.COUNT(data, transaction_action = True)
-                if action == "ROLLBACK":
-                    self.ROLLBACK(transaction_action = True)
-                if action == "COMMIT":
-                    self.COMMIT(data, transaction_action = True)
-            else:
-                if action == "END":
-                    self.END()
-                if action == "SET":
-                    self.SET(data)
-                if action == "GET":
-                    self.GET(data)
-                if action == "DELETE":
-                    self.DELETE(data)
-                if action == "COUNT":
-                    self.COUNT(data)
+                self.end()
+            if action == "SET":
+                self.set(data)
+            if action == "GET":
+                self.get(data)
+            if action == "DELETE":
+                self.delete(data)
+            if action == "COUNT":
+                self.count(data)
+            if action == "ROLLBACK":
+                self.rollback()
+            if action == "COMMIT":
+                self.commit()
         except Exception as error:
             self.logger.error("Error while performing action, please review. Please review error: %s" % error)
 
@@ -99,12 +88,14 @@ class InMemoryDb:
                 data = line.rsplit()
                 actionVerb = data[0]
                 if actionVerb == "BEGIN":
+                    self.transaction_action = True
+                    self.temporary_transaction_dict = self.dataInmemory
                     stdInNew = sys.stdin
                     for line in stdInNew:
                         data = line.rsplit()
                         newAction = data[0]
                         if self.actionVerbValidator(newAction):
-                            self.performActions(data, transaction_action=True)
+                            self.performActions(data)
                         else:
                             self.logger.error("function '%s' not allowed, supported fuctions are %s" % (newAction, (self.allowed_transaction_verb_list + self.allowed_function_verb_list)))
                 elif self.actionVerbValidator(actionVerb):
@@ -114,7 +105,7 @@ class InMemoryDb:
         except Exception as error:
             self.logger.error("Cannot Process INput. Please review error: %s" % error)
 
-    def set_logger(self):
+    def setLogger(self):
         """
         Method to set logger for this application. This is to be used to troubleshoot issues with this application.
 
@@ -130,7 +121,7 @@ class InMemoryDb:
         logger.addHandler(handler)
         self.logger = logger
     
-    def SET(self, data, transaction_action=False):
+    def set(self, data):
         """
         Method to Set the name in the database to the given value 
         SET [name] [value]
@@ -144,15 +135,16 @@ class InMemoryDb:
                 return
             name = data[0]
             value = data[1]
-            if not transaction_action:
+            if not self.transaction_action:
                 self.dataInmemory[name] = value
             else:
                 self.transaction_count += 1
                 self.temporary_transaction_list.append({name: value})
+                self.temporary_transaction_dict[name] = value
         except Exception as error:
             self.logger.error("Cannot SET. Please review error: %s" % error)
 
-    def GET(self, data, transaction_action=False):
+    def get(self, data):
         """
         Method to Print the value for the given name. If the value is not in the database, prints N​ULL
         GET [name]
@@ -165,27 +157,21 @@ class InMemoryDb:
                 self.logger.error("GET requires 1 value, only %d provided. Example GET a" % len(data))
                 return
             name = data[0]
-            if not transaction_action:
-                if name in self.dataInmemory:
-                    print(self.dataInmemory[name])
+
+            def getItem(name, dictionary):
+                if name in dictionary:
+                    print(dictionary[name])
                 else:
                     print("NULL")
+
+            if not self.transaction_action:
+                getItem(name, self.dataInmemory)
             else:
-                if self.rollback_triggered:
-                    if name in self.temporary_transaction_dict:
-                        print(self.temporary_transaction_dict[name])
-                    else:
-                        print("NULL")
-                else:
-                    transaction_item = [a_dict[name] for a_dict in self.temporary_transaction_list]
-                    if transaction_item:
-                        print(transaction_item[-1])
-                    else:
-                        print("NULL")
+                getItem(name, self.temporary_transaction_dict)
         except Exception as error:
             self.logger.error("Cannot Get. Please review error: %s" % error)
 
-    def DELETE(self, data, transaction_action=False):
+    def delete(self, data):
         """
         Method to Delete the value from the database
         DELETE [value] 
@@ -198,37 +184,47 @@ class InMemoryDb:
                 self.logger.error("DELETE require 1 value, only %d provided. Example DELETE a" % len(data))
                 return
             name = data[0]
-            if name in self.dataInmemory:
-                del self.dataInmemory[name]
+            if not self.transaction_action:
+                if name in self.dataInmemory:
+                    del self.dataInmemory[name]
+            else:
+                if name in self.temporary_transaction_dict:
+                    del self.temporary_transaction_dict[name]
         except Exception as error:
             self.logger.error("Cannot DELETE. Please review error: %s" % error)
 
-    def COUNT(self, data, transaction_action=False):
+    def count(self, data):
         """
         Method Returns the number of names that have the given value assigned to them. If that value is not assigned anywhere, prints ​0 
         Count [Value]
 
-        Args: value
+        Args: data
         Returns: number of names or 0
         """
         try:
+            def countValue(val, dictionary):
+                sum = 0
+                for key, value in dictionary.items():
+                    if value == val:
+                        sum += 1
+                print(sum)
+            
             if len(data) < 1:
                 self.logger.error("COUNT require 1 value, only %d provided. Example COUNT foo" % len(data))
                 return
             val = data[0]
-            sum = 0
-            for key, value in self.dataInmemory.items():
-                if value == val:
-                    sum += 1
-            print(sum)
+            if not self.transaction_action:
+                countValue(val, self.dataInmemory)
+            else:
+                countValue(val, self.temporary_transaction_dict)
         except Exception as error:
             self.logger.error("Cannot COUNT. Please review error: %s" % error)
     
-    def ROLLBACK(self, transaction_action=False):
+    def rollback(self):
         """
         Method to rollback a transaction 
 
-        Args: data
+        Args: None 
         Returns: None 
         """
         try:
@@ -241,7 +237,23 @@ class InMemoryDb:
         except Exception as error:
             self.logger.error("CANNOT ROLLBACK. Please review error: %s" % error)
 
-    def END(self):
+    def commit(self):
+        """
+        Method to commit transaction to memory
+
+        Args: None
+        Returns: None
+        """
+        try:
+            self.dataInmemory.update(self.temporary_transaction_dict)
+            self.temporary_transaction_dict = {}
+            self.temporary_transaction_list = []
+            self.transaction_action = False
+            self.transaction_count = 0
+        except Exception as error:
+            self.logger.error("CANNOT COMMIT. Please review error: %s" % error)
+
+    def end(self):
         """
         Method to Exit the database 
 
