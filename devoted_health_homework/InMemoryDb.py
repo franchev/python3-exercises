@@ -16,10 +16,9 @@ class InMemoryDb:
     - Reads values from STDIN line by line and executes functions as they happen
     """
 
-    def __init__(self, stdin):
+    def __init__(self):
         self.dataInmemory = {}
         self.setLogger()
-        self.input = stdin
         self.allowed_function_verb_list = ["SET", "GET", "DELETE", "COUNT", "END", "BEGIN"]
         self.allowed_transaction_verb_list = ["SET", "GET", "DELETE", "END", "ROLLBACK", "COMMIT"]
         self.temporary_transaction_list = []
@@ -73,15 +72,15 @@ class InMemoryDb:
         except Exception as error:
             self.logger.error("Error while performing action, please review. Please review error: %s" % error)
 
-    def processInput(self):
+    def processInput(self, stdin):
         """
-        Method to process input from self.input 
+        Method to process input from stdin
 
-        Args: None
+        Args: stdin
         Returns: None
         """
         try:
-            for line in self.input:
+            for line in stdin:
                 if not line:
                     self.logger.error("Input cannot be empty")
                     return
@@ -267,5 +266,5 @@ class InMemoryDb:
             self.logger.error("CANNOT END, PLEASE PRESS CTRL+C TO FORCE EXIT. Please review error: %s" % error)
 
 if __name__ == "__main__":
-    inMemoryDbObject = InMemoryDb(sys.stdin)
-    inMemoryDbObject.processInput()
+    inMemoryDbObject = InMemoryDb()
+    inMemoryDbObject.processInput(sys.stdin)
