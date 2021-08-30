@@ -87,16 +87,8 @@ class InMemoryDb:
                 data = line.rsplit()
                 actionVerb = data[0]
                 if actionVerb == "BEGIN":
-                    self.transaction_action = True
-                    self.temporary_transaction_dict = self.dataInmemory
                     stdInNew = sys.stdin
-                    for line in stdInNew:
-                        data = line.rsplit()
-                        newAction = data[0]
-                        if self.actionVerbValidator(newAction):
-                            self.performActions(data)
-                        else:
-                            self.logger.error("function '%s' not allowed, supported fuctions are %s" % (newAction, (self.allowed_transaction_verb_list + self.allowed_function_verb_list)))
+                    self.begin(stdInNew)
                 elif self.actionVerbValidator(actionVerb):
                     self.performActions(data)    
                 else:
@@ -218,7 +210,24 @@ class InMemoryDb:
                 countValue(val, self.temporary_transaction_dict)
         except Exception as error:
             self.logger.error("Cannot COUNT. Please review error: %s" % error)
-    
+
+    def begin(self, stdin):
+        """
+        Method to Begin a transaction
+
+        Args: stdin
+        Returns: None
+        """
+        self.transaction_action = True
+        self.temporary_transaction_dict = self.dataInmemory
+        for line in stdin:
+            data = line.rsplit()
+            newAction = data[0]
+            if self.actionVerbValidator(newAction):
+                self.performActions(data)
+            else:
+                self.logger.error("function '%s' not allowed, supported fuctions are %s" % (newAction, (self.allowed_transaction_verb_list + self.allowed_function_verb_list))) 
+
     def rollback(self):
         """
         Method to rollback a transaction 
