@@ -47,15 +47,28 @@ class TestInMemoryDb(unittest.TestCase):
         value = self.outputResult.getvalue().rstrip()
         sys.stdout =self.old_stdout
         self.assertEqual(value, 'NULL')
+  
+    '''
+    def testExample1(self):
+        transactionString = "GET a\nSET a foo\nSET b foo\nCOUNT foo\nCOUNT bar\nDELETE a\nCOUNT foo\nSET b baz\nCOUNT foo\nGET b\nGET B"
+        transactionExampleList = ['GET a', 'SET a foo', 'SET b foo', 'COUNT foo', 'COUNT bar', 'DELETE a', 'COUNT foo', 'SET b baz', 'COUNT foo', 'GET b', 'GET B']
+
     
+    def testExample4(self):
+        transactionString = "SET a foo\nSET b baz\nBEGIN\n\nGET a\nSET a bar\nCOUNT bar\nBEGIN\nCOUNT bar\nDELETE a\nGET a\nCOUNT bar\nROLLBACK\nGET a\nCOUNT bar\nCOMMIT\nGET a\nGET b"
+        transactionImdbOject = imdb()
+        for line in transactionString.splitlines():
+            newInput = io.StringIO(line)
+            transactionImdbOject.processInput(newInput)
+            newInput.close()
+        permanentValue = transactionImdbOject.dataInmemory
+        self.assertEqual(permanentValue, {'b': 'baz', 'a': 'bar'})  
+    '''
+
     def testEnd(self):
         endImdbOject = imdb()
         with self.assertRaises(SystemExit):
             endImdbOject.end()
-
-
-    def testTransaction(self):
-        pass
 
 if __name__ == '__main__':
     unittest.main()
